@@ -107,19 +107,19 @@ const TTS = {
       const u = new SpeechSynthesisUtterance(text);
       u.rate = rate;
       if (lang === "zh") {
-        const vs = speechSynthesis.getVoices();
-        const zh = vs.find(x => /^zh[-_](TW|Hant)/i.test(x.lang)) || vs.find(x => /^zh/i.test(x.lang));
-        u.lang = "zh-TW";
-        if (zh) u.voice = zh;
+        u.lang = "zh-TW"; // 只指定語言，手機清單裡可能有尚未下載、不會發聲的語音
       } else {
         u.lang = "en-US";
         if (this.voice) u.voice = this.voice;
       }
       let settled = false;
-      const done = () => { if (!settled) { settled = true; clearTimeout(guard); res(); } };
-      const guard = setTimeout(done, text.length * 220 / rate + 4000); // 語音引擎沒回應時不要卡死
-      u.onend = u.onerror = done;
+      const done = ok => { if (!settled) { settled = true; clearTimeout(guard); res(ok); } };
+      // 語音引擎沒回應時要清空佇列，否則卡住的那句會讓後面全部出不了聲
+      const guard = setTimeout(() => { try { speechSynthesis.cancel(); } catch { } done(false); }, text.length * 220 / rate + 4000);
+      u.onend = () => done(true);
+      u.onerror = () => done(false);
       if (onBoundary) u.onboundary = e => onBoundary(e.charIndex);
+      try { speechSynthesis.resume(); } catch { }
       speechSynthesis.speak(u);
     });
   },
@@ -737,8 +737,13 @@ const ACT = {
         const zh = state.mine[i].zh;
         if (!zh) return;
         const st = $("#libStatus"); if (st) st.textContent = zh;
-        await TTS.speak(zh, 1, null, "zh");
-        await sleep(400);
+        // 換語言前先清空，部分手機切換語音時會卡住
+        try { speechSynthesis.cancel(); } catch { }
+        await sleep(150);
+        const ok = await TTS.speak(zh, 1, null, "zh").catch(() => false);
+        if (!ok) { const el = $("#libStatus"); if (el) el.textContent = `中文語音沒有回應，已略過：${zh}`; }
+        try { speechSynthesis.cancel(); } catch { }
+        await sleep(ok ? 400 : 900);
       },
       onEnd: () => {
         const b = document.querySelector('[data-act="playAll"]'); if (b) b.textContent = "播放全部";
