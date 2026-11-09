@@ -102,11 +102,19 @@ const TTS = {
     this.voice = vs.find(v => /natural|online/i.test(v.name)) || vs.find(v => /google/i.test(v.name)) || vs[0] || null;
     this.noEnglish = all.length > 0 && !this.voice;
   },
-  speak(text, rate, onBoundary) {
+  speak(text, rate, onBoundary, lang = "en") {
     return new Promise(res => {
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = "en-US"; u.rate = rate;
-      if (this.voice) u.voice = this.voice;
+      u.rate = rate;
+      if (lang === "zh") {
+        const vs = speechSynthesis.getVoices();
+        const zh = vs.find(x => /^zh[-_](TW|Hant)/i.test(x.lang)) || vs.find(x => /^zh/i.test(x.lang));
+        u.lang = "zh-TW";
+        if (zh) u.voice = zh;
+      } else {
+        u.lang = "en-US";
+        if (this.voice) u.voice = this.voice;
+      }
       let settled = false;
       const done = () => { if (!settled) { settled = true; clearTimeout(guard); res(); } };
       const guard = setTimeout(done, text.length * 220 / rate + 4000); // 語音引擎沒回應時不要卡死
@@ -137,10 +145,15 @@ async function playList(list, key, hooks = {}) {
     else await sleep(250);
   };
   if (cfg(key).times === 0) {
-    for (let n = 1; alive(); n++) for (let i = 0; i < list.length && alive(); i++) await once(list[i], i, n);
+    for (let n = 1; alive(); n++) for (let i = 0; i < list.length && alive(); i++) {
+      await once(list[i], i, n);
+      if (alive() && hooks.afterItem) await hooks.afterItem(i);
+    }
   } else {
-    for (let i = 0; i < list.length && alive(); i++)
+    for (let i = 0; i < list.length && alive(); i++) {
       for (let n = 1; n <= (cfg(key).times || 1) && alive(); n++) await once(list[i], i, n);
+      if (alive() && hooks.afterItem) await hooks.afterItem(i);
+    }
   }
   if (alive()) { TTS.busy = false; hooks.onStatus && hooks.onStatus("播完了"); hooks.onEnd && hooks.onEnd(); }
 }
@@ -259,7 +272,7 @@ function vLib() {
   <section class="card"><h2>匯入句子</h2><p class="mute">一行一句，用 | 分隔英文和中文。中文可省略。</p>
   <textarea id="imp" placeholder="How was your day? | 你今天過得如何？&#10;I'll be right back. | 我馬上回來。"></textarea>
   <div class="row"><button class="primary" data-act="import">加入句庫</button><label class="mute">或選 .txt 檔 <input type="file" id="impFile" accept=".txt,.csv,text/plain"></label></div></section>
-  ${state.mine.length ? `<section class="card"><h2>連續播放全部（${state.mine.length} 句）</h2><div class="ctl" id="ctl-free">${ctlHTML("free")}</div><p class="status" id="libStatus"></p><button class="primary big" data-act="playAll">${TTS.busy ? "停止" : "播放全部"}</button></section>
+  ${state.mine.length ? `<section class="card"><h2>連續播放全部（${state.mine.length} 句）</h2><div class="ctl" id="ctl-free">${ctlHTML("free")}</div><p class="status" id="libStatus"></p><button class="primary big" data-act="playAll">${TTS.busy ? "停止" : "播放全部"}</button><p class="mute">每句念完會接中文翻譯。全部播完後，用中文抽問，等你回答英文。</p><button data-act="rStart">直接開始抽問</button></section>
   ${state.mine.map(m => itemHTML(m.id)).join("")}` : `<p class="mute">還沒有匯入句子。可以到「方法」頁複製提示詞，請 AI 幫你產生。</p>`}
   <section class="card"><h2>備份</h2><p class="mute">學習紀錄只存在這台電腦的這個瀏覽器。換電腦前請先匯出。</p><div class="row"><button data-act="backup">匯出備份</button><label class="mute">還原備份 <input type="file" id="restoreFile" accept=".json"></label></div></section>`;
 }
@@ -319,7 +332,7 @@ function render() {
   $("#nav").innerHTML = TABS.map(([k, n]) => `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-t="${k}">${n}</button>`).join("");
 }
 function openSheet(html) { $("#sheetBody").innerHTML = html; $("#sheet").hidden = false; $("#sheet").scrollTop = 0; document.body.style.overflow = "hidden"; }
-function closeSheet() { TTS.stop(); Rec.stop(); C = null; Q = null; SQ = null; D = null; $("#sheet").hidden = true; document.body.style.overflow = ""; render(); }
+function closeSheet() { TTS.stop(); Rec.stop(); C = null; Q = null; SQ = null; D = null; R = null; $("#sheet").hidden = true; document.body.style.overflow = ""; render(); }
 const sheetHead = t => `<div class="row between"><button class="icon" data-act="close">← 返回</button><span class="mute">${esc(t)}</span></div>`;
 
 /* ---------- 跟讀教練 ---------- */
@@ -590,6 +603,88 @@ function dictNext() {
   renderDict(); setTimeout(() => D && dictPlay(0.7), 300);
 }
 
+/* ---------- 中翻英抽問 ---------- */
+const RECALL_COUNT = 5;
+let R = null;
+function sayZh(text) {
+  TTS.stop();
+  setTimeout(() => TTS.speak(text, 1, null, "zh"), 60);
+}
+function openRecall() {
+  const pool = state.mine.filter(m => m.zh).map(m => m.id);
+  if (!pool.length) { toast("句子要有中文翻譯才能抽問"); return; }
+  R = { list: shuffle(pool).slice(0, RECALL_COUNT), cur: 0, text: "", tries: 0, grade: null, hint: false, revealed: false, scores: [] };
+  renderRecall(); recallAsk();
+}
+function recallAsk() { if (R && R.cur < R.list.length) setTimeout(() => R && !R.revealed && sayZh(getS(R.list[R.cur]).zh), 200); }
+const recallKeepText = () => { const el = $("#rcInput"); if (el) R.text = el.value; };
+function recallSlots(en) {
+  const words = en.split(/\s+/);
+  return `<div class="slots">${words.map((w, i) => {
+    if (R.revealed) return `<span class="slot ${R.grade && R.grade.hit.has(i) ? "hit" : "shown"}">${esc(w)}</span>`;
+    if (R.grade && R.grade.hit.has(i)) return `<span class="slot hit">${esc(w)}</span>`;
+    const clean = w.replace(/[^a-z']/gi, "");
+    return `<span class="slot ${R.grade ? "miss" : ""}">${R.hint ? esc(clean[0] || "") + "_".repeat(Math.max(clean.length - 1, 0)) : "_".repeat(clean.length)}</span>`;
+  }).join("")}</div>`;
+}
+function renderRecall() {
+  const head = sheetHead(R.cur < R.list.length ? `抽問 ${R.cur + 1} / ${R.list.length}` : "抽問結果");
+  if (R.cur >= R.list.length) {
+    const right = R.scores.filter(x => x === 100).length;
+    openSheet(`${head}<section class="card" style="text-align:center"><div class="bigsym">${right} / ${R.scores.length}</div><p>${right === R.scores.length ? "全部答對，太棒了！" : "沒答對的句子已加入再複習。"}</p></section>
+    <button class="primary big" data-act="rStart">再抽一輪</button><button class="big" data-act="close">回句庫</button>`);
+    return;
+  }
+  const s = getS(R.list[R.cur]);
+  const tip = R.revealed ? "看看哪裡不一樣，再聽一次、念一次。" : R.grade ? "綠色的字答對了，想一下空格的字，再回答一次。" : "這句中文的英文怎麼說？慢慢想，不限時間。想不起來可以看提示。";
+  let body;
+  if (R.revealed) {
+    const ok = R.first === 100;
+    body = `<section class="card"><p class="${ok ? "good" : "bad"}">${ok ? "答對了！" : "沒關係，這句已加入再複習。"}</p><p class="mute">你的回答：${esc(R.text) || "（空白）"}</p><button data-act="rEn">聽英文</button></section>
+    <div class="row">${markBtns(R.list[R.cur])}</div>
+    <button class="primary big" data-act="rNext">${R.cur < R.list.length - 1 ? "下一題" : "看結果"}</button>
+    <button class="big" data-act="coach" data-id="${R.list[R.cur]}">跟讀這句</button>`;
+  } else {
+    body = `${speechOK ? `<button class="primary big" data-act="rSpeak">用說的回答</button>` : ""}
+    <p id="rcOut" class="status" aria-live="polite"></p>
+    <section class="card"><label for="rcInput" class="mute">或打字回答</label>
+    <input id="rcInput" value="${esc(R.text)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" lang="en">
+    <button ${speechOK ? "" : 'class="primary"'} data-act="rCheck">送出</button></section>
+    <div class="row">${R.hint ? "" : `<button class="grow" data-act="rHint">給我提示</button>`}<button class="grow" data-act="rReveal">看答案</button></div>`;
+  }
+  openSheet(`${head}<p class="coachtip">${tip}</p><section class="card"><p style="font-size:1.35rem;font-weight:700">${esc(s.zh)}</p><button data-act="rAsk">再聽一次題目</button>${R.hint || R.grade || R.revealed ? recallSlots(s.en) : ""}</section>${body}`);
+}
+function recallFinish() {
+  const id = R.list[R.cur], en = getS(id).en;
+  if (!R.grade) R.grade = gradeDict(en, R.text);
+  if (R.first === undefined) R.first = R.grade.score;
+  R.scores.push(R.first);
+  if (R.first < 100) { addReview(id); save(); }
+  R.revealed = true; renderRecall(); sayOnce(en, 0.8);
+}
+function recallGrade(answers) {
+  const en = getS(R.list[R.cur]).en;
+  const best = answers.map(a => ({ a, g: gradeDict(en, a) })).sort((x, y) => y.g.score - x.g.score)[0];
+  R.text = best.a; R.grade = best.g; R.tries++;
+  if (R.first === undefined) R.first = best.g.score;
+  if (best.g.score === 100 || R.tries >= 2) recallFinish(); else renderRecall();
+}
+function recallCheck() {
+  recallKeepText();
+  if (!R.text.trim()) { toast("先說或打幾個想得到的字"); return; }
+  TTS.stop(); recallGrade([R.text]);
+}
+async function recallSpeak() {
+  const cur = R.cur, out = $("#rcOut");
+  recallKeepText(); TTS.stop();
+  out.textContent = "請現在用英文說…";
+  try {
+    const alts = await recognize();
+    if (R && R.cur === cur && !R.revealed) recallGrade(alts);
+  } catch (e) { const el = $("#rcOut"); if (el) el.textContent = speechErr(e) + " 也可以打字回答。"; }
+}
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "rcInput") { e.preventDefault(); recallCheck(); } });
+
 /* ---------- PWA ---------- */
 if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => { /* 不支援時仍可線上使用 */ });
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
@@ -617,6 +712,14 @@ const ACT = {
   dCheck: dictCheck,
   dReveal: () => { dictKeepText(); dictFinish(); },
   dNext: dictNext,
+  rStart: () => openRecall(),
+  rAsk: () => { sayZh(getS(R.list[R.cur]).zh); },
+  rHint: () => { recallKeepText(); R.hint = true; renderRecall(); },
+  rCheck: recallCheck,
+  rSpeak: recallSpeak,
+  rReveal: () => { recallKeepText(); recallFinish(); },
+  rNext: () => { Object.assign(R, { cur: R.cur + 1, text: "", tries: 0, first: undefined, grade: null, hint: false, revealed: false }); renderRecall(); recallAsk(); },
+  rEn: () => sayOnce(getS(R.list[R.cur]).en, 0.8),
   star: e => { const id = e.dataset.id; if (state.star[id]) delete state.star[id]; else state.star[id] = 1; save(); e.outerHTML = markBtns(id).split("</button>")[0] + "</button>"; if ($("#sheet").hidden) render(); },
   rev: e => { const id = e.dataset.id; if (state.review[id]) delete state.review[id]; else addReview(id); save(); e.outerHTML = markBtns(id).split("</button>")[1] + "</button>"; if ($("#sheet").hidden) render(); },
   del: e => { state.mine = state.mine.filter(m => m.id !== e.dataset.id); delete state.star[e.dataset.id]; delete state.review[e.dataset.id]; save(); render(); },
@@ -630,7 +733,17 @@ const ACT = {
     e.textContent = "停止";
     playList(state.mine.map(m => m.en), "free", {
       onItem: i => { const st = $("#libStatus"); if (st) st.textContent = state.mine[i].en; },
-      onEnd: () => { const b = document.querySelector('[data-act="playAll"]'); if (b) b.textContent = "播放全部"; },
+      afterItem: async i => {
+        const zh = state.mine[i].zh;
+        if (!zh) return;
+        const st = $("#libStatus"); if (st) st.textContent = zh;
+        await TTS.speak(zh, 1, null, "zh");
+        await sleep(400);
+      },
+      onEnd: () => {
+        const b = document.querySelector('[data-act="playAll"]'); if (b) b.textContent = "播放全部";
+        if (state.tab === "lib" && $("#sheet").hidden) openRecall();
+      },
     });
   },
   backup: () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(state)], { type: "application/json" })); a.download = `shadowing-backup-${dateKey()}.json`; a.click(); },

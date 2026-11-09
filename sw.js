@@ -1,5 +1,5 @@
 // 離線快取：有網路時用最新版，連不上或太慢時用快取。
-const CACHE = "shadowing-v1";
+const CACHE = "shadowing-v2";
 const FILES = ["./", "index.html", "style.css", "data.js", "dictation.js", "app.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 const TIMEOUT_MS = 2500;
 
@@ -25,7 +25,8 @@ self.addEventListener("fetch", e => {
       return false;
     });
     const timer = setTimeout(useCache, TIMEOUT_MS);
-    fetch(req, { cache: "no-cache" }).then(res => {
+    // 開啟頁面的請求不能另設 cache 選項，否則會直接失敗而一直用舊版
+    fetch(req.mode === "navigate" ? req : new Request(req, { cache: "no-cache" })).then(res => {
       clearTimeout(timer);
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       if (!finished) { finished = true; resolve(res); }
