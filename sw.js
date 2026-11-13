@@ -1,6 +1,6 @@
 // 離線快取：有網路時用最新版，連不上或太慢時用快取。
-const CACHE = "shadowing-v2";
-const FILES = ["./", "index.html", "style.css", "data.js", "dictation.js", "app.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
+const CACHE = "shadowing-v3";
+const FILES = ["./", "index.html", "style.css", "data.js", "dictation.js", "data-mid.js", "app.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 const TIMEOUT_MS = 2500;
 
 self.addEventListener("install", e => {

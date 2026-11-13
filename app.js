@@ -51,11 +51,15 @@ const STEP_DEFAULTS = {
   free: { rate: 0.8, times: 2, gap: true },
   sound: { rate: 0.6, times: 3, gap: true },
 };
-function defaultState() { return { mine: [], star: {}, review: {}, days: {}, sounds: {}, steps: {}, ipa: {}, tab: "today", dictPos: 0, dictDays: {}, dictRes: {} }; }
+function defaultState() { return { mine: [], star: {}, review: {}, days: {}, sounds: {}, steps: {}, ipa: {}, tab: "today", dictPos: 0, dictPosMid: 0, dictDays: {}, dictRes: {}, level: "basic" }; }
 function load() { try { return Object.assign(defaultState(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { return defaultState(); } }
 let state = load();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast("無法儲存，瀏覽器可能封鎖了本機儲存"); } }
 const cfg = k => state.steps[k] || (state.steps[k] = { ...STEP_DEFAULTS[k] });
+/* 程度：初級題目在題庫前段，中級接在後段 */
+const isMid = () => state.level === "mid";
+const tk = key => isMid() ? key + "@mid" : key; // 兩個程度的今日完成紀錄分開
+const span = (kind, total) => isMid() ? [BASIC_COUNT[kind], total] : [0, BASIC_COUNT[kind]];
 
 /* ---------- 句子登錄與音標 ---------- */
 const REG = {};
@@ -212,8 +216,8 @@ const dueIds = () => Object.keys(state.review).filter(id => getS(id) && state.re
 
 /* ---------- 今日內容 ---------- */
 function today() {
-  const n = dayNum(), set = n % DAILY.length;
-  const pick = (k, off = 0) => { const len = THEMES[k].items.length; return `t-${k}-${(n + off) % len}`; };
+  const n = dayNum(), [d0, d1] = span("daily", DAILY.length), set = d0 + n % (d1 - d0);
+  const pick = (k, off = 0) => { const [a, b] = span("theme", THEMES[k].items.length); return `t-${k}-${a + (n + off) % (b - a)}`; };
   return { set, n, themes: ["life", "travel", "med"].map(k => ({ k, name: THEMES[k].name, id: pick(k), bonus: pick(k, 7) })) };
 }
 const doneList = () => state.days[dateKey()] || [];
@@ -243,11 +247,11 @@ const TABS = [["today", "今日"], ["lib", "句庫"], ["sound", "發音表"], ["
 function taskList() {
   const t = today();
   const tasks = [
-    { key: "listen", tag: "聽力題", title: "聽一句話，選出中文意思", act: "q", type: "listen" },
-    { key: "dict", tag: "聽寫", title: `聽英文，打出你聽到的句子（${Object.keys(dictResToday()).length} / 3 題）`, act: "dict" },
-    { key: "talk", tag: "會話題", title: "聽對方說，選出合適的回答", act: "q", type: "talk" },
-    { key: "shadow", tag: "影子跟讀", title: DAILY[t.set].shadow.zh, act: "coach", id: `ds-${t.set}` },
-    ...t.themes.map(x => ({ key: "t-" + x.k, tag: x.name, title: getS(x.id).zh, act: "coach", id: x.id })),
+    { key: tk("listen"), tag: "聽力題", title: "聽一句話，選出中文意思", act: "q", type: "listen" },
+    { key: tk("dict"), tag: "聽寫", title: `聽英文，打出你聽到的句子（${dictToday().filter(i => dictResToday()[i] !== undefined).length} / 3 題）`, act: "dict" },
+    { key: tk("talk"), tag: "會話題", title: "聽對方說，選出合適的回答", act: "q", type: "talk" },
+    { key: tk("shadow"), tag: "影子跟讀", title: DAILY[t.set].shadow.zh, act: "coach", id: `ds-${t.set}` },
+    ...t.themes.map(x => ({ key: tk("t-" + x.k), tag: x.name, title: getS(x.id).zh, act: "coach", id: x.id })),
   ];
   return { t, tasks };
 }
@@ -257,6 +261,7 @@ function vToday() {
   const due = dueIds().length;
   const d = new Date();
   return `<header class="row between"><div><p class="mute">${d.getMonth() + 1} 月 ${d.getDate()} 日　連續 ${streak()} 天</p><h1>${fin === tasks.length ? "今天完成了" : "今天練 15 分鐘就好"}</h1></div></header>
+  <div class="seg" role="group" aria-label="程度"><button class="${isMid() ? "" : "on"}" data-act="level" data-v="basic" aria-pressed="${!isMid()}">初級：短句</button><button class="${isMid() ? "on" : ""}" data-act="level" data-v="mid" aria-pressed="${isMid()}">中級：長句、口語</button></div>
   ${TTS.noEnglish ? `<section class="card"><p class="bad">這個瀏覽器找不到英文語音，念出來會有中文口音。</p><p>${/Android|iPhone|iPad/i.test(navigator.userAgent) ? "請到手機的「設定」搜尋「文字轉語音」或「語音內容」，下載英文（美國）語音後重新開啟 App。" : "請改用 Microsoft Edge 或 Google Chrome 開啟。若仍然出現這個訊息，請到 Windows「設定 → 時間與語言 → 語音」新增 English (United States) 語音。"}</p></section>` : ""}
   <section class="card"><div class="bar"><i style="width:${fin / tasks.length * 100}%"></i></div><p class="mute">已完成 ${fin} / ${tasks.length} 項</p>
   ${next ? `<button class="primary big" data-act="task" data-key="${next.key}">開始：${esc(next.tag)}</button>` : `<p>全部完成，明天會換新內容。想多練可以試試下面的加碼句。</p>`}</section>
@@ -320,7 +325,7 @@ function vGuide() {
   <section class="card"><h2>為什麼不用先學會英文思考</h2><p>先用中文弄懂意思，再讓耳朵和嘴巴反覆模仿。句子練熟了，遇到相同情境就會直接說出來，不必在腦中翻譯。</p></section>
   <section class="card"><h2>每句話的五個步驟</h2><ol style="margin:0;padding-left:1.3em">
     <li><b>看懂：</b>先看中文，知道這句話在說什麼。</li><li><b>慢慢聽：</b>只聽不說，慢速聽 3 遍。</li><li><b>分段跟：</b>切成小段，播一段說一段。</li><li><b>影子跟讀：</b>整句跟著念，再錄音比對。</li><li><b>評分：</b>覺得還不順，就排進複習，隔天再見。</li></ol></section>
-  <section class="card"><h2>每天 15 分鐘</h2><p>依序做完「今日」的 7 項就好。聽寫時聽不出來的字可以空著，第二次再補。卡住時把速度調到 0.5，一句練不好沒關係，留給複習。發音表每天挑 1 個音，別貪多。</p></section>
+  <section class="card"><h2>每天 15 分鐘</h2><p>依序做完「今日」的 7 項就好。聽寫時聽不出來的字可以空著，第二次再補。初級覺得太簡單時，在「今日」上方切換到中級，句子會變長、更口語，選項也更接近。卡住時把速度調到 0.5，一句練不好沒關係，留給複習。發音表每天挑 1 個音，別貪多。</p></section>
   <h2>AI 提示詞（複製到 Claude 或 ChatGPT）</h2><p class="mute">把【】裡的內容換成你要的。產生的句子可以貼回「句庫」匯入。</p>
   ${PROMPTS.map((p, i) => `<section class="card"><h2>${esc(p[0])}</h2><pre>${esc(p[1])}</pre><button data-act="copy" data-i="${i}">複製</button></section>`).join("")}`;
 }
@@ -494,23 +499,28 @@ async function soundSpeak() {
 let D = null;
 const dictResToday = () => state.dictRes[dateKey()] || {};
 /** 今天的 3 題；還沒開始做之前只是預覽，不會推進進度 */
+const dictKey = () => dateKey() + (isMid() ? "|mid" : "");
 function dictToday() {
-  const saved = state.dictDays[dateKey()];
-  return saved || [0, 1, 2].map(i => (state.dictPos + i) % DICTATION.length);
+  const saved = state.dictDays[dictKey()];
+  if (saved) return saved;
+  const [a, b] = span("dict", DICTATION.length), pos = isMid() ? state.dictPosMid : state.dictPos;
+  return [0, 1, 2].map(i => a + (pos + i) % (b - a));
 }
 function dictLevel(idx) {
   let end = 0;
   for (const [name, n] of DICT_LEVELS) { end += n; if (idx < end) return name; }
   return DICT_LEVELS[DICT_LEVELS.length - 1][0];
 }
-const CONTRACTIONS = [["i'm", "i am"], ["it's", "it is"], ["don't", "do not"], ["can't", "cannot"], ["i'll", "i will"]];
+// [縮寫, 完整寫法, 是否不接受省略撇號]；we're 去掉撇號會變成 were，所以不接受
+const CONTRACTIONS = [["i'm", "i am"], ["it's", "it is"], ["don't", "do not"], ["can't", "cannot"], ["i'll", "i will"],
+  ["i've", "i have"], ["haven't", "have not"], ["doesn't", "does not"], ["didn't", "did not"], ["isn't", "is not"], ["we're", "we are", true]];
 const NUM_WORDS = { 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten" };
 /** 把使用者輸入整理成與題目相同的寫法：縮寫、數字不算錯 */
 function normalizeTyped(typed, target) {
   const t = target.toLowerCase().replace(/’/g, "'");
   let s = ` ${typed.toLowerCase().replace(/’/g, "'").replace(/\b(10|[1-9])\b/g, m => NUM_WORDS[m])} `;
-  for (const [short, long] of CONTRACTIONS) {
-    const bare = short.replace("'", "'?");
+  for (const [short, long, strict] of CONTRACTIONS) {
+    const bare = strict ? short : short.replace("'", "'?");
     s = t.includes(short)
       ? s.replace(new RegExp(`\\b${long}\\b`, "g"), short).replace(new RegExp(`\\b${bare}(?![a-z])`, "g"), short)
       : s.replace(new RegExp(`\\b${bare}(?![a-z])`, "g"), long);
@@ -520,11 +530,13 @@ function normalizeTyped(typed, target) {
 const gradeDict = (target, typed) => compareWords(target, normalizeTyped(typed, target));
 
 function openDict() {
-  const k = dateKey();
+  const k = dictKey();
   if (!state.dictDays[k]) { // 第一次開始做才佔用今天的題目並往後推進
     state.dictDays[k] = dictToday();
-    state.dictPos = (state.dictPos + 3) % DICTATION.length;
-    state.dictRes[k] = {};
+    const [a, b] = span("dict", DICTATION.length);
+    if (isMid()) state.dictPosMid = (state.dictPosMid + 3) % (b - a);
+    else state.dictPos = (state.dictPos + 3) % (b - a);
+    state.dictRes[dateKey()] = state.dictRes[dateKey()] || {};
     save();
   }
   const list = state.dictDays[k], res = dictResToday();
@@ -576,7 +588,7 @@ function dictRecord(score) {
   if (res[idx] !== undefined) return; // 只記第一次的成績，重做不覆蓋
   res[idx] = score;
   if (score < 100) addReview(`dc-${idx}`);
-  if (D.list.every(i => res[i] !== undefined)) markDone("dict");
+  if (D.list.every(i => res[i] !== undefined)) markDone(tk("dict"));
   save();
 }
 function dictFinish() {
@@ -771,7 +783,8 @@ const ACT = {
     toast(e.dataset.v === "again" ? "明天會再出現" : "完成一句了"); closeSheet();
   },
   qPlay,
-  qAns: e => { Q.answered = +e.dataset.i; TTS.stop(); markDone(Q.type); renderQ(); },
+  qAns: e => { Q.answered = +e.dataset.i; TTS.stop(); markDone(tk(Q.type)); renderQ(); },
+  level: e => { state.level = e.dataset.v === "mid" ? "mid" : "basic"; save(); render(); toast(isMid() ? "已切換到中級" : "已切換到初級"); },
   sound: e => { TTS.stop(); openSound(e.dataset.g, +e.dataset.i); },
   sPlay: e => {
     if (TTS.busy) { TTS.stop(); e.textContent = "反覆跟讀 3 個例字"; $("#sStatus").textContent = ""; return; }

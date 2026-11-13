@@ -1,8 +1,8 @@
 // 聽寫題庫：由易到難排列，每天依序出 3 題，全部做完會從頭循環。
 // [英文, 中文, [[單字, 音標, 中文], ...], 聽力小提示]
-const DICT_LEVELS = [["第 1 級", 10], ["第 2 級", 10], ["第 3 級", 10]];
+const DICT_LEVELS = [["初級 1", 10], ["初級 2", 10], ["初級 3", 10]];
 const DICTATION = [
-  // 第 1 級：3 到 4 個字
+  // 初級 1：3 到 4 個字
   ["I am happy.","我很開心。",[["happy","ˈhæpi","開心的"]],"I am 口語常連在一起，聽起來像 I'm。"],
   ["It is hot.","天氣很熱。",[["hot","hɑːt","熱的"]],"It is 連讀時像 ih-tiz，is 很輕。"],
   ["I like tea.","我喜歡茶。",[["tea","tiː","茶"]],"like 的 k 很短，後面馬上接 tea。"],
@@ -13,7 +13,7 @@ const DICTATION = [
   ["Open the door.","請開門。",[["open","ˈoʊpən","打開"],["door","dɔːr","門"]],"the 很輕，要靠句型補上：動詞後面常接 the。"],
   ["Sit down, please.","請坐下。",[["sit","sɪt","坐"],["down","daʊn","向下"]],"Sit down 的 t 和 d 黏在一起，只聽到一個音。"],
   ["Good morning, teacher.","老師早安。",[["morning","ˈmɔːrnɪŋ","早上"],["teacher","ˈtiːtʃər","老師"]],"Good morning 的 d 常常不會完整念出來。"],
-  // 第 2 級：4 到 5 個字
+  // 初級 2：4 到 5 個字
   ["I drink water every day.","我每天喝水。",[["drink","drɪŋk","喝"],["every","ˈevri","每一"]],"every 只有兩個音節，聽起來像 ev-ri。"],
   ["My mother is at home.","我媽媽在家。",[["mother","ˈmʌðər","媽媽"]],"is at 連讀成 i-zat。"],
   ["I have two brothers.","我有兩個兄弟。",[["brothers","ˈbrʌðərz","兄弟"]],"注意字尾的 s，兩個以上要加 s。"],
@@ -24,7 +24,7 @@ const DICTATION = [
   ["I want some rice.","我想要一些飯。",[["some","sʌm","一些"],["rice","raɪs","米飯"]],"want some 的 t 幾乎聽不到。"],
   ["He goes to school.","他去上學。",[["goes","ɡoʊz","去"],["school","skuːl","學校"]],"to 會弱讀成 tə，很輕。he 後面要用 goes。"],
   ["Please close the window.","請關窗。",[["close","kloʊz","關上"],["window","ˈwɪndoʊ","窗戶"]],"close 當動詞時，字尾是 z 音。"],
-  // 第 3 級：5 到 7 個字
+  // 初級 3：5 到 7 個字
   ["I go to work by bus.","我搭公車上班。",[["work","wɜːrk","工作"],["bus","bʌs","公車"]],"by bus 不加 the，交通方式的固定說法。"],
   ["Can you help me, please?","可以請你幫我嗎？",[["help","help","幫忙"]],"Can you 會連成 kə-nyu，can 很輕。"],
   ["What time is it now?","現在幾點？",[["time","taɪm","時間"]],"is it 連讀成 i-zit。"],
